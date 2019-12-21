@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 
@@ -12,18 +13,21 @@ import 'package:uuid/uuid.dart';
 enum BrokerState {
   Disconnected,
   Connected,
+  ReservationCountChange,
 }
 
 class Broker {
   static Broker _instance = Broker();
   static Broker get instance => _instance;
 
-  final StreamController stateChange =
-      StreamController<BrokerState>.broadcast();
+  final StreamController<BrokerState> stateChange =
+      StreamController.broadcast();
+
+  final Queue<Completer<List<Song>>> _reservationRequests = Queue();
 
   MqttClient _mqtt;
-
   KaraokeConfig config;
+  int _lstRvlCount;
 
   Broker({
     this.config,
@@ -74,12 +78,16 @@ class Broker {
         });
         _mqtt.subscribe(await getAppTopic(), MqttQos.atMostOnce);
         await _sendKAR();
+        //sends WHO also
+        await getReservationList();
       } else {
         // device topic stays the same so no need to change if already connected
         // only publishes will change dest
         // push a WHO command to the new karaoke
         // push a CMD for revlist
         await _sendKAR();
+        //sends WHO also
+        await getReservationList();
       }
 
       //all done
@@ -91,9 +99,63 @@ class Broker {
     _sendString(appTopic, "KAR${config.toJson()}");
   }
 
-  void _handleDeviceMessage(String data) {}
+  //WHO{"MOBILEID":"iOS/F6083BB7-F828-4277-B3C4-148445802259","EMAIL":"xxx","MOBILESYS":1}
+  //WHO{"MOBILEID":"Android/ffffffff-ba68-c20a-5a2e-09622d143630","EMAIL":"xxx","MOBILESYS":1}
+  Future<void> _sendWWO() async {
+    final devId = await getMqttId();
+    final karTopic = getKaraokeTopic();
+
+    final jObj = <String, dynamic>{
+      "MOBILEID": devId,
+      "EMAIL": "",
+      "MOBILESYS": 1,
+    };
+
+    _sendString(karTopic, "WHO${json.encode(jObj)}");
+  }
+
+  int get reservationCount => _lstRvlCount;
+
+  void _handleDeviceMessage(String data) {
+    //map this to List<Song>
+    //RVL{"RESERVCOUNT":1,"NUMBER":[10692],"NATION":[7],"TYPE":[1],"TITLE":["IKAW"],"SINGER":["YENG CONSTANTINO"]}
+    if (data.startsWith("RVL")) {
+      final ret = List<Song>();
+      final jData = json.decode(data.substring(3));
+      final rCount = jData["RESERVCOUNT"] as int;
+      if (rCount > 0) {
+        final numbers = jData["NUMBER"].cast<int>();
+        final nations = jData["NATION"].cast<int>();
+        final types = jData["TYPE"].cast<int>();
+        final titles = jData["TITLE"].cast<String>();
+        final singers = jData["SINGER"].cast<String>();
+
+        for (var x = 0; x < rCount; x++) {
+          ret.add(Song(
+            number: numbers[x],
+            nation: nations[x],
+            songType: types[x],
+            title: titles[x],
+            artist: singers[x],
+          ));
+        }
+      }
+
+      //push list to all completers
+      while (_reservationRequests.length > 0) {
+        final req = _reservationRequests.removeFirst();
+        req.complete(ret);
+      }
+
+      if (_lstRvlCount != rCount) {
+        _lstRvlCount = rCount;
+        stateChange.add(BrokerState.ReservationCountChange);
+      }
+    }
+  }
 
   int _sendString(String topic, String data) {
+    if ((topic?.isEmpty ?? true) || !isConnected) throw "Not connected";
     print("Sending $topic => $data");
 
     final builder = MqttClientPayloadBuilder();
@@ -120,13 +182,20 @@ class Broker {
 
   void playSong(Song s) {
     if (s != null && isConnected) {
-      _sendString(getKaraokeTopic(), "PLY${s.toPLYJson()}");
+      _sendString(getKaraokeTopic(), "PLY${s.toSongRequestJson()}");
     }
   }
 
   void reserveSong(Song s) {
     if (s != null && isConnected) {
-      _sendString(getKaraokeTopic(), "RES${s.toPLYJson()}");
+      _sendString(getKaraokeTopic(), "RES${s.toSongRequestJson()}");
+    }
+  }
+
+  //RCL{"SONGNUMBER":3009,"SONGNATION":7,"SONGTYPE":1,"ACCOUNTVALID":0,"FORMAT":0,"SONGTITLE":"MASDAN MO ANG KAPALIGIRAN","SONGSINGER":"AEGIS"}
+  void removeReservedSong(Song s) {
+    if (s != null && isConnected) {
+      _sendString(getKaraokeTopic(), "RCL${s.toSongRequestJson()}");
     }
   }
 
@@ -146,8 +215,9 @@ class Broker {
     return "$MobileTopicStart/$mqId";
   }
 
-  String getKaraokeTopic() =>
-      "$KaraokeTopicStart/${config.model}/${config.topic}";
+  String getKaraokeTopic() => config != null
+      ? "$KaraokeTopicStart/${config.model}/${config.topic}"
+      : null;
 
   Future<String> getDeviceId() async {
     final pref = await SharedPreferences.getInstance();
@@ -177,6 +247,22 @@ class Broker {
     };
 
     _sendString(getKaraokeTopic(), "COM${json.encode(jObj)}");
+  }
+
+  //COM{"COMMAND":"REQ_RESERVLIST","INTVAL":0,"NAME":" ","STRVAL":" "}
+  Future<List<Song>> getReservationList() async {
+    //Tells the karaoke who to send data to
+    await _sendWWO();
+
+    final comp = Completer<List<Song>>();
+    _reservationRequests.add(comp);
+
+    sendCommand("REQ_RESERVLIST");
+
+    return await comp.future.timeout(Duration(seconds: 30), onTimeout: () {
+      _reservationRequests.remove(comp);
+      throw "Timeout";
+    });
   }
 }
 

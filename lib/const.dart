@@ -50,3 +50,5 @@ const HymDB = ["PUPPY", "KORKID", "KORHYMN", "KORBUL"];
 const DBFilter = "MAGIC_DB_SELECT";
 
 const DefaultDBFilter = ["POPSONG"];
+
+const WithAlbumCovers = false;

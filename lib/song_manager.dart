@@ -199,7 +199,7 @@ class Song {
     );
   }
 
-  String toPLYJson() {
+  String toSongRequestJson() {
     return json.encode({
       "SONGNUMBER": number,
       "SONGNATION": nation,

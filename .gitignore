@@ -24,3 +24,4 @@ doc/api/
 
 build/
 .idea/
+android/key.properties

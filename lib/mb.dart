@@ -46,7 +46,7 @@ class MusicBrainz {
       await comp.future;
       _running++;
 
-      print(url);
+      //print(url);
       final result = await cm.getSingleFile(url, headers: MusicBrainzUA);
 
       jsonData = await result?.readAsString();
@@ -64,7 +64,7 @@ class MusicBrainz {
 
   String getCoverImage(String release) {
     final ret = "https://coverartarchive.org/release/$release/front-small";
-    print(ret);
+    //print(ret);
     return ret;
   }
 }

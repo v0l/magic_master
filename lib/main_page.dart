@@ -3,6 +3,7 @@ import 'package:magic_master/broker.dart';
 import 'package:magic_master/const.dart';
 import 'package:magic_master/karaoke_config.dart';
 import 'package:magic_master/qr_scanner.dart';
+import 'package:magic_master/reservation_list.dart';
 import 'package:magic_master/song_list_cache.dart';
 import 'package:magic_master/song_manager.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -25,6 +26,8 @@ class MainPage extends StatelessWidget {
         ),
         title: Text("MagicSing"),
         actions: <Widget>[
+          ///QR scan button
+          ///
           IconButton(
             onPressed: () async {
               final karaokeConfig = await Navigator.push<KaraokeConfig>(
@@ -33,9 +36,42 @@ class MainPage extends StatelessWidget {
               if (karaokeConfig != null) {
                 final sp = await SharedPreferences.getInstance();
                 await sp.setString(KaraokeInfo, karaokeConfig.toJson());
+
+                await Broker.instance.start(karaokeConfig);
               }
             },
             icon: Icon(Icons.photo_camera),
+          ),
+
+          ///Rev list button
+          ///
+          Stack(
+            children: [
+              StreamBuilder(
+                stream: Broker.instance.stateChange.stream,
+                builder: (context, state) {
+                  final c = Broker?.instance?.reservationCount ?? 0;
+                  if (c > 0) {
+                    return Container(
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Colors.lightGreen,
+                      ),
+                      padding: EdgeInsets.all(5),
+                      child: Text("$c"),
+                    );
+                  } else {
+                    return SizedBox.shrink();
+                  }
+                },
+              ),
+              IconButton(
+                onPressed: () async {
+                  await Navigator.pushNamed(context, ReservationList.routeName);
+                },
+                icon: Icon(Icons.list),
+              ),
+            ],
           ),
         ],
       ),

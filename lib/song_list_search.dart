@@ -4,6 +4,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:magic_master/broker.dart';
+import 'package:magic_master/const.dart';
 import 'package:magic_master/mb.dart';
 import 'package:magic_master/mb_search.dart';
 import 'package:magic_master/song_manager.dart';
@@ -165,44 +166,48 @@ class _SongListSearch extends State<SongListSearch> {
                             child: ListTile(
                               title: Text(ReCase(a.title).titleCase),
                               subtitle: Text(ReCase(a.artist).titleCase),
-                              leading: FutureBuilder<RecordingSearch>(
-                                key: Key("${a.number}"),
-                                future: () async {
-                                  final result = await MusicBrainz.instance
-                                      .searchRecording(a.title, a.artist);
+                              leading: WithAlbumCovers
+                                  ? FutureBuilder<RecordingSearch>(
+                                      key: Key("${a.number}"),
+                                      future: () async {
+                                        final result = await MusicBrainz
+                                            .instance
+                                            .searchRecording(a.title, a.artist);
 
-                                  return result;
-                                }(),
-                                builder: (context, state) {
-                                  if (state.hasData) {
-                                    final id = () {
-                                      // fucking first doesnt do emply list check
-                                      final rec = state.data?.recordings;
-                                      if ((rec?.length ?? 0) > 0) {
-                                        final rel = rec?.first?.releases;
-                                        if ((rel?.length ?? 0) > 0) {
-                                          return rel?.first?.id;
+                                        return result;
+                                      }(),
+                                      builder: (context, state) {
+                                        if (state.hasData) {
+                                          final id = () {
+                                            // fucking first doesnt do emply list check
+                                            final rec = state.data?.recordings;
+                                            if ((rec?.length ?? 0) > 0) {
+                                              final rel = rec?.first?.releases;
+                                              if ((rel?.length ?? 0) > 0) {
+                                                return rel?.first?.id;
+                                              }
+                                            }
+                                            return null;
+                                          }();
+                                          if (id?.isNotEmpty ?? false) {
+                                            return AspectRatio(
+                                              aspectRatio: 1,
+                                              child: CachedNetworkImage(
+                                                fit: BoxFit.contain,
+                                                imageUrl: MusicBrainz.instance
+                                                    .getCoverImage(id),
+                                                errorWidget:
+                                                    (context, url, err) =>
+                                                        Placeholder(),
+                                              ),
+                                            );
+                                          }
+                                          return Placeholder();
                                         }
-                                      }
-                                      return null;
-                                    }();
-                                    if (id?.isNotEmpty ?? false) {
-                                      return AspectRatio(
-                                        aspectRatio: 1,
-                                        child: CachedNetworkImage(
-                                          fit: BoxFit.contain,
-                                          imageUrl: MusicBrainz.instance
-                                              .getCoverImage(id),
-                                          errorWidget: (context, url, err) =>
-                                              Placeholder(),
-                                        ),
-                                      );
-                                    }
-                                    return Placeholder();
-                                  }
-                                  return CircularProgressIndicator();
-                                },
-                              ),
+                                        return CircularProgressIndicator();
+                                      },
+                                    )
+                                  : null,
                               trailing: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: <Widget>[
